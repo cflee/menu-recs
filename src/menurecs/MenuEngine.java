@@ -32,6 +32,12 @@ public class MenuEngine {
             return;
         }
 
+        // process data: currently ordered items
+        double curTotalPrice = 0.0;
+        for (Map.Entry<String, Integer> current : currents.entrySet()) {
+            curTotalPrice += menuItems.get(current.getKey()).getPrice();
+        }
+
         // process data: prices and categories
         double[] recPrices = new double[recIds.size()];
         int[] recCategories = new int[recIds.size()];
@@ -39,6 +45,7 @@ public class MenuEngine {
         for (int i = 0; i < recIds.size(); i++) {
             MenuItem item = menuItems.get(recIds.get(i));
             recPrices[i] = item.getPrice();
+            System.out.println("Adding recommended item " + item.getDescription() + " at price " + item.getPrice());
 
             int categoryIndex = categories.indexOf(item.getCategory());
             if (categoryIndex == -1) {
@@ -58,28 +65,48 @@ public class MenuEngine {
             // e.g. -Djava.library.path=/Applications/IBM/ILOG/CPLEX_Studio1261/cplex/bin/x86-64_osx
             IloCplex cplex = new IloCplex();
 
-            // create variables
+            // static configuration
+            double largeM = 1000.0;
+
+            // DECISION VARIABLES
+            // x and y dvars are boolean
+            // z is int, 0 <= z <= 1000.0
             IloIntVar[] xs = cplex.boolVarArray(recIds.size());
             IloIntVar[] ys = cplex.boolVarArray(recCategories.length);
-            IloNumVar z = cplex.numVar(1.0, 1000.0);
+            IloNumVar z = cplex.numVar(0.0, 1000.0);
 
-            // create objective function
+
+            // OBJECTIVE FUNCTION
             // available operators:
             // abs, constant, diff [subtract], max, min, negative, prod, scalProd, square, sum
+
+            // maximize sum(prices * x) * (1 - 0.1 * sum(y) - z)
             IloLinearNumExpr totalPrices = cplex.scalProd(recPrices, xs);
             IloNumExpr categoryPenalty = cplex.diff(1, cplex.prod(0.1, cplex.sum(ys)));
-            IloNumExpr budgetPenalty = cplex.diff(2, z); // 1.05 -> deduct 5%. so max 2?
-//            IloNumExpr obj = cplex.prod(totalPrices, cplex.prod(categoryPenalty, budgetPenalty));
-            IloNumExpr obj = cplex.prod(totalPrices, categoryPenalty);
+            IloNumExpr obj = cplex.prod(totalPrices, cplex.diff(categoryPenalty, z));
             cplex.addMaximize(obj);
 
-            System.out.println("QO " + cplex.isQO());
+            System.out.println("Quadratic objective? " + cplex.isQO());
+            System.out.println("Quadratic constraint? " + cplex.isQC());
 
-            // create constraints
+
+            // CONSTRAINTS
             // available operators:
             // addEq, addGe, addLe, and, not, or, eq, ge, le, ifThen
+
+            // number of things to output
+            // outputLength == sum(xs)
             cplex.addEq(config.get("outputLength"), cplex.sum(xs), "outputLength");
-            cplex.addLe(totalPrices, cplex.prod(z, config.get("numOfPax") * config.get("spendPerPax")), "budget");
+
+            // totalPrices <= (1 + Z) * (NS - amount spent)
+            double budget = config.get("numOfPax") * config.get("spendPerPax");
+            double remainingBudget = budget - curTotalPrice;
+            System.out.println("Budget: " + budget);
+            System.out.println("Remaining budget: " + remainingBudget);
+            cplex.addLe(totalPrices, cplex.prod(cplex.sum(1, z), remainingBudget), "budget");
+
+            // make the category's y 1 if exceeding 1 item per category
+            // x <= 1 + My
             IloLinearIntExpr[] categoryConstraints = new IloLinearIntExpr[categories.size()];
             for (int i = 0; i < categoryConstraints.length; i++) {
                 categoryConstraints[i] = cplex.linearIntExpr();
@@ -88,12 +115,15 @@ public class MenuEngine {
                 categoryConstraints[recCategories[i]].addTerm(1, xs[i]);
             }
             for (int i = 0; i < categoryConstraints.length; i++) {
-                cplex.addLe(categoryConstraints[i], cplex.sum(1, cplex.prod(1000, ys[i])), "category"
+                cplex.addLe(categoryConstraints[i], cplex.sum(1, cplex.prod(largeM, ys[i])), "category"
                         + categories.get(i));
             }
-            cplex.addGe(z, 1, "budgetMin");
 
+            // just write this lp file out for fun
             cplex.exportModel("test.lp");
+
+            // provide visual separation from cplex engine's output
+            System.out.println("=== STARTING CPLEX");
 
             // solve
             if (cplex.solve()) {
