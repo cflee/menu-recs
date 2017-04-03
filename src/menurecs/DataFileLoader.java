@@ -16,17 +16,20 @@ public class DataFileLoader {
         this.dataDir = dataDir;
     }
 
-    public Map<String, Double> readConfig() throws IOException {
-        Map<String, Double> config = new HashMap<>();
+    public Map<String, String> readConfig() throws IOException {
+        Map<String, String> config = new HashMap<>();
 
         Scanner sc;
         try (Reader in = new FileReader(dataDir + File.separator + "config.txt")) {
             sc = new Scanner(in);
-            config.put("outputLength", (double) sc.nextInt());
-            config.put("numOfPax", (double) sc.nextInt());
-            config.put("spendPerPax", sc.nextDouble());
+            config.put("outputLength", "" + sc.nextInt());
+            config.put("numOfPax", "" + sc.nextInt());
+            config.put("spendPerPax", "" + sc.nextDouble());
+            config.put("customerId", sc.next());
             sc.close();
         }
+
+        System.out.println("Read config: " + config.toString());
 
         return config;
     }
@@ -62,14 +65,23 @@ public class DataFileLoader {
         return currentMap;
     }
 
-    public List<String> readRecommendation() throws IOException {
-        List<String> recommendations = new ArrayList<>();
+    public Map<String, List<String>> readRecommendation() throws IOException {
+        Map<String, List<String>> recommendations = new HashMap<>();
 
         Reader in = new FileReader(dataDir + File.separator + "recommendation.csv");
         CSVFormat format = CSVFormat.DEFAULT.withHeader().withSkipHeaderRecord();
         for (CSVRecord record : format.parse(in)) {
-            String itemId = record.get("Item");
-            recommendations.add(itemId);
+            String user = record.get("user");
+            List<String> recItems = new ArrayList<>();
+            // iterate over items
+            for (int i = 1; i <= 162; i++) {
+                // needs to be a string instead of int, as it's a column name, not index
+                String item = record.get("" + i);
+                if (!item.equals("TAKEAWAY")) {
+                    recItems.add(item);
+                }
+            }
+            recommendations.put(user, recItems);
         }
 
         return recommendations;

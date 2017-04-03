@@ -11,10 +11,10 @@ public class MenuEngine {
         // load data
         String dataDir = "data";
         DataFileLoader loader = new DataFileLoader(dataDir);
-        Map<String, Double> config;
+        Map<String, String> config;
         Map<String, MenuItem> menuItems;
         Map<String, Integer> currents;
-        List<String> recIds;
+        Map<String, List<String>> recommendations;
         try {
             config = loader.readConfig();
 
@@ -24,8 +24,8 @@ public class MenuEngine {
             currents = loader.readCurrent();
             System.out.println("Read current: " + currents.size());
 
-            recIds = loader.readRecommendation();
-            System.out.println("Read recommendation: " + recIds.size());
+            recommendations = loader.readRecommendation();
+            System.out.println("Read recommendation: " + recommendations.size());
         } catch (IOException e) {
             System.err.println("Error: could not read one or more files.");
             e.printStackTrace();
@@ -38,14 +38,19 @@ public class MenuEngine {
             curTotalPrice += menuItems.get(current.getKey()).getPrice();
         }
 
+        // process data: only get the current customer
+        List<String> customerRecommendations = recommendations.get(config.get("customerId"));
+
         // process data: prices and categories
-        double[] recPrices = new double[recIds.size()];
-        int[] recCategories = new int[recIds.size()];
+        double[] itemPrices = new double[customerRecommendations.size()];
+        int[] itemScores = new int[customerRecommendations.size()];
+        int[] itemCategories = new int[customerRecommendations.size()];
         List<String> categories = new ArrayList<>();
-        for (int i = 0; i < recIds.size(); i++) {
-            MenuItem item = menuItems.get(recIds.get(i));
-            recPrices[i] = item.getPrice();
-            System.out.println("Adding recommended item " + item.getDescription() + " at price " + item.getPrice());
+        for (int i = 0; i < customerRecommendations.size(); i++) {
+            MenuItem item = menuItems.get(customerRecommendations.get(i));
+            itemScores[i] = customerRecommendations.size() - i;
+            itemPrices[i] = item.getPrice();
+            System.out.println("Adding recommended item " + item.getDescription() + " with price " + item.getPrice() + " and score " + itemScores[i]);
 
             int categoryIndex = categories.indexOf(item.getCategory());
             if (categoryIndex == -1) {
@@ -53,7 +58,7 @@ public class MenuEngine {
                 categories.add(item.getCategory());
             }
 
-            recCategories[i] = categoryIndex;
+            itemCategories[i] = categoryIndex;
         }
 
         // init model
@@ -71,8 +76,8 @@ public class MenuEngine {
             // DECISION VARIABLES
             // x and y dvars are boolean
             // z is int, 0 <= z <= 1000.0
-            IloIntVar[] xs = cplex.boolVarArray(recIds.size());
-            IloIntVar[] ys = cplex.boolVarArray(recCategories.length);
+            IloIntVar[] xs = cplex.boolVarArray(customerRecommendations.size());
+            IloIntVar[] ys = cplex.boolVarArray(itemCategories.length);
             IloNumVar z = cplex.numVar(0.0, 1000.0);
 
 
@@ -81,9 +86,9 @@ public class MenuEngine {
             // abs, constant, diff [subtract], max, min, negative, prod, scalProd, square, sum
 
             // maximize sum(prices * x) * (1 - 0.1 * sum(y) - z)
-            IloLinearNumExpr totalPrices = cplex.scalProd(recPrices, xs);
+            IloLinearIntExpr totalScores = cplex.scalProd(itemScores, xs);
             IloNumExpr categoryPenalty = cplex.diff(1, cplex.prod(0.1, cplex.sum(ys)));
-            IloNumExpr obj = cplex.prod(totalPrices, cplex.diff(categoryPenalty, z));
+            IloNumExpr obj = cplex.prod(totalScores, cplex.diff(categoryPenalty, z));
             cplex.addMaximize(obj);
 
             System.out.println("Quadratic objective? " + cplex.isQO());
@@ -96,10 +101,11 @@ public class MenuEngine {
 
             // number of things to output
             // outputLength == sum(xs)
-            cplex.addEq(config.get("outputLength"), cplex.sum(xs), "outputLength");
+            cplex.addEq(Integer.parseInt(config.get("outputLength")), cplex.sum(xs), "outputLength");
 
             // totalPrices <= (1 + Z) * (NS - amount spent)
-            double budget = config.get("numOfPax") * config.get("spendPerPax");
+            IloLinearNumExpr totalPrices = cplex.scalProd(itemPrices, xs);
+            double budget = Integer.parseInt(config.get("numOfPax")) * Double.parseDouble(config.get("spendPerPax"));
             double remainingBudget = budget - curTotalPrice;
             System.out.println("Budget: " + budget);
             System.out.println("Remaining budget: " + remainingBudget);
@@ -111,8 +117,8 @@ public class MenuEngine {
             for (int i = 0; i < categoryConstraints.length; i++) {
                 categoryConstraints[i] = cplex.linearIntExpr();
             }
-            for (int i = 0; i < recIds.size(); i++) {
-                categoryConstraints[recCategories[i]].addTerm(1, xs[i]);
+            for (int i = 0; i < customerRecommendations.size(); i++) {
+                categoryConstraints[itemCategories[i]].addTerm(1, xs[i]);
             }
             for (int i = 0; i < categoryConstraints.length; i++) {
                 cplex.addLe(categoryConstraints[i], cplex.sum(1, cplex.prod(largeM, ys[i])), "category"
@@ -132,9 +138,9 @@ public class MenuEngine {
                 System.out.println("=== OBJECTIVE VALUE");
                 System.out.println(cplex.getObjValue());
                 System.out.println("=== SOLUTION VALUES");
-                for (int i = 0; i < recIds.size(); i++) {
+                for (int i = 0; i < customerRecommendations.size(); i++) {
                     if (cplex.getValue(xs[i]) == 1) {
-                        MenuItem item = menuItems.get(recIds.get(i));
+                        MenuItem item = menuItems.get(customerRecommendations.get(i));
                         System.out.println(item.getId() + "," + item.getDescription() + "," + item.getCategory()
                                 + "," + item.getPrice());
                     }
