@@ -34,6 +34,21 @@ public class MenuEngine {
         // config
         port(8080);
         // provide routes and logic
+        get("/menu", (request, response) -> {
+            Map<String, Map<String, String>> menu = new HashMap<>();
+            for (Map.Entry<String, MenuItem> entry : menuItems.entrySet()) {
+                MenuItem item = entry.getValue();
+                Map<String, String> menuDetails = new HashMap<>();
+
+                menuDetails.put("itemid", item.getId());
+                menuDetails.put("price", "" + item.getPrice());
+                menuDetails.put("description", item.getDescription());
+                menuDetails.put("category", item.getCategory());
+
+                menu.put(item.getId(), menuDetails);
+            }
+            return new Gson().toJson(menu);
+        });
         get("/recommend", (request, response) -> {
             // check for required params
             String[] requiredParams = {"customerid", "outputlength", "numpax", "targetspend", "itemids", "itemqty"};
