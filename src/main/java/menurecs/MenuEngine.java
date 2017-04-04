@@ -147,9 +147,10 @@ public class MenuEngine {
         // process data: currently ordered items
         double curTotalPrice = 0.0;
         for (Map.Entry<String, Integer> current : currents.entrySet()) {
-            System.out.print(menuItems);
-            System.out.print(menuItems.get(current.getKey()));
-            curTotalPrice += menuItems.get(current.getKey()).getPrice();
+            MenuItem item = menuItems.get(current.getKey());
+            int qty = current.getValue();
+            System.out.println("Adding current item " + item.getDescription() + " with price " + item.getPrice() + " and qty " + qty);
+            curTotalPrice += item.getPrice() * qty;
         }
 
         // process data: only get the current customer
