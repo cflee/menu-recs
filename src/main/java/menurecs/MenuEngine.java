@@ -144,6 +144,12 @@ public class MenuEngine {
 
     public static List<String> computeRecommendation(String customerId, int outputLength, int numPax, double spendPerPax,
                                              Map<String, Integer> currents) {
+        System.out.println("=== RECEIVED REQUEST");
+        System.out.println("Customer ID: " + customerId);
+        System.out.println("Output length: " + outputLength);
+        System.out.println("Num of pax: " + numPax);
+        System.out.println("Target spend per pax: " + spendPerPax);
+
         // process data: currently ordered items
         double curTotalPrice = 0.0;
         for (Map.Entry<String, Integer> current : currents.entrySet()) {
