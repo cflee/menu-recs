@@ -209,10 +209,10 @@ public class MenuEngine {
             // available operators:
             // abs, constant, diff [subtract], max, min, negative, prod, scalProd, square, sum
 
-            // maximize sum(prices * x) * (1 - 0.1 * sum(y) - z)
+            // maximize sum(prices * x) - (100 * sum(y) + 300 * z)
             IloLinearIntExpr totalScores = cplex.scalProd(itemScores, xs);
-            IloNumExpr categoryPenalty = cplex.diff(1, cplex.prod(0.1, cplex.sum(ys)));
-            IloNumExpr obj = cplex.prod(totalScores, cplex.diff(categoryPenalty, z));
+            IloNumExpr penalty = cplex.sum(cplex.prod(100, cplex.sum(ys)), cplex.prod(300, z));
+            IloNumExpr obj = cplex.diff(totalScores, penalty);
             cplex.addMaximize(obj);
 
             System.out.println("Quadratic objective? " + cplex.isQO());
@@ -227,13 +227,13 @@ public class MenuEngine {
             // outputLength == sum(xs)
             cplex.addEq(outputLength, cplex.sum(xs), "outputLength");
 
-            // totalPrices <= (1 + Z) * (NS - amount spent)
-            IloLinearNumExpr totalPrices = cplex.scalProd(itemPrices, xs);
+            // solutionTotalPrices + currentTotalPrices <= (1 + Z) * (budget)
+            IloNumExpr totalPrices = cplex.sum(cplex.scalProd(itemPrices, xs), curTotalPrice);
             double budget = numPax * spendPerPax;
             double remainingBudget = budget - curTotalPrice;
             System.out.println("Budget: " + budget);
             System.out.println("Remaining budget: " + remainingBudget);
-            cplex.addLe(totalPrices, cplex.prod(cplex.sum(1, z), remainingBudget), "budget");
+            cplex.addLe(totalPrices, cplex.prod(cplex.sum(1, z), budget), "budget");
 
             // make the category's y 1 if exceeding 1 item per category
             // x <= 1 + My
