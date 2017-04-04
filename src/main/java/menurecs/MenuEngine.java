@@ -33,6 +33,26 @@ public class MenuEngine {
 
         // config
         port(8080);
+
+        // CORS support.
+        // source: https://gist.github.com/saeidzebardast/e375b7d17be3e0f4dddf
+        // see also: https://sparktutorials.github.io/2016/05/01/cors.html
+        options("/*", (request, response) -> {
+            String accessControlRequestHeaders = request.headers("Access-Control-Request-Headers");
+            if (accessControlRequestHeaders != null) {
+                response.header("Access-Control-Allow-Headers", accessControlRequestHeaders);
+            }
+
+            String accessControlRequestMethod = request.headers("Access-Control-Request-Method");
+            if (accessControlRequestMethod != null) {
+                response.header("Access-Control-Allow-Methods", accessControlRequestMethod);
+            }
+
+            return "OK";
+        });
+
+        before((request, response) -> response.header("Access-Control-Allow-Origin", "*"));
+
         // provide routes and logic
         get("/menu", (request, response) -> {
             Map<String, Map<String, String>> menu = new HashMap<>();
