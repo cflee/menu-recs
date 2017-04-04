@@ -1,8 +1,12 @@
+# Data files
+data/
+*.lp
+
 # Compiled class file
 *.class
 
 # Package Files #
-# *.jar
+*.jar
 *.war
 *.ear
 *.zip
@@ -64,3 +68,6 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 fabric.properties
+
+# Maven
+target/
