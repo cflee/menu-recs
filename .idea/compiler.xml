@@ -10,7 +10,7 @@
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
-      <module name="menu-recs" target="1.5" />
+      <module name="menu-recs" target="1.8" />
     </bytecodeTargetLevel>
   </component>
 </project>
