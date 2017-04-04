@@ -12,6 +12,8 @@ This has only been tested on macOS, but it should work on Windows or Linux as we
 We don't distribute anything from CPLEX here. BYO!)
 
 ## Build
+You must copy or symlink `IBM/ILOG/CPLEX_Studio1261/cplex/lib/cplex.jar` into `lib/` for compile-time.
+
 We use maven-assembly-plugin to make a fat JAR (except the cplex JAR).
 
 ```
