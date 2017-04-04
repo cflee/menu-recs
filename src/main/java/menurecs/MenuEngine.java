@@ -263,7 +263,8 @@ public class MenuEngine {
                 System.out.println(cplex.getObjValue());
                 System.out.println("=== SOLUTION VALUES");
                 for (int i = 0; i < customerRecommendations.size(); i++) {
-                    if (cplex.getValue(xs[i]) == 1) {
+                    // cannot test == 1 here because cplex sometimes returns 0.99999999999908 when bool var is true
+                    if (cplex.getValue(xs[i]) != 0) {
                         MenuItem item = menuItems.get(customerRecommendations.get(i));
                         System.out.println(item.getId() + "," + item.getDescription() + "," + item.getCategory()
                                 + "," + item.getPrice());
