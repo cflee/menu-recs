@@ -154,20 +154,27 @@ public class MenuEngine {
         System.out.println("Num of pax: " + numPax);
         System.out.println("Target spend per pax: " + spendPerPax);
 
+        // process data: only get the current customer
+        List<String> customerRecommendations = recommendations.get(customerId);
+        System.out.println("Original number of recommendations: " + customerRecommendations.size());
+
         // process data: currently ordered items
         double curTotalPrice = 0.0;
         for (Map.Entry<String, Integer> current : currents.entrySet()) {
             MenuItem item = menuItems.get(current.getKey());
+
+            // add item to current total price
             int qty = current.getValue();
             System.out.println("Adding current item " + item.getDescription() + " with price " + item.getPrice() + " and qty " + qty);
             curTotalPrice += item.getPrice() * qty;
-        }
 
-        // process data: only get the current customer
-        List<String> customerRecommendations = recommendations.get(customerId);
-        int numRecItems = customerRecommendations.size();
+            // remove from consideration in the recommendations list
+            customerRecommendations.remove(current.getKey());
+        }
+        System.out.println("After removing currently ordered items: " + customerRecommendations.size());
 
         // process data: prices and categories
+        int numRecItems = customerRecommendations.size();
         double[] itemPrices = new double[numRecItems];
         int[] itemScores = new int[numRecItems];
         int[] itemCategories = new int[numRecItems];
@@ -232,6 +239,7 @@ public class MenuEngine {
             // outputLength == sum(xs)
             cplex.addEq(outputLength, cplex.sum(xs), "outputLength");
 
+            // make z reflect how much over budget each recommended item is
             // itemPrice_i * x_i + currentTotalPrices <= (1 + Z_i) * (budget), for all i
             double budget = numPax * spendPerPax;
             double remainingBudget = budget - curTotalPrice;
