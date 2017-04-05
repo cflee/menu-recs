@@ -126,10 +126,14 @@ public class MenuEngine {
                 if (itemIdsStrings.length != itemQtyStrings.length) {
                     throw new Exception("Differing number of item ids and qty");
                 }
-                for (int i = 0; i < itemIdsStrings.length; i++) {
-                    int itemQty = Integer.parseInt(itemQtyStrings[i]);
-                    currentOrder.put(itemIdsStrings[i], itemQty);
+                if (itemIdsStrings.length != 1 || !itemIdsStrings[0].equals("")) {
+                    // only parse if itemIdsString is not [""] due to empty param
+                    for (int i = 0; i < itemIdsStrings.length; i++) {
+                        int itemQty = Integer.parseInt(itemQtyStrings[i]);
+                        currentOrder.put(itemIdsStrings[i], itemQty);
+                    }
                 }
+
 
                 List<String> results = computeRecommendation(customerId, outputLength, numPax, targetSpend, currentOrder);
 
