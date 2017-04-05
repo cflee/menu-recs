@@ -165,15 +165,16 @@ public class MenuEngine {
 
         // process data: only get the current customer
         List<String> customerRecommendations = recommendations.get(customerId);
+        int numRecItems = customerRecommendations.size();
 
         // process data: prices and categories
-        double[] itemPrices = new double[customerRecommendations.size()];
-        int[] itemScores = new int[customerRecommendations.size()];
-        int[] itemCategories = new int[customerRecommendations.size()];
+        double[] itemPrices = new double[numRecItems];
+        int[] itemScores = new int[numRecItems];
+        int[] itemCategories = new int[numRecItems];
         List<String> categories = new ArrayList<>();
-        for (int i = 0; i < customerRecommendations.size(); i++) {
+        for (int i = 0; i < numRecItems; i++) {
             MenuItem item = menuItems.get(customerRecommendations.get(i));
-            itemScores[i] = customerRecommendations.size() - i;
+            itemScores[i] = numRecItems - i;
             itemPrices[i] = item.getPrice();
             System.out.println("Adding recommended item " + item.getDescription() + " with price " + item.getPrice() + " and score " + itemScores[i]);
 
@@ -203,19 +204,19 @@ public class MenuEngine {
 
             // DECISION VARIABLES
             // x and y dvars are boolean
-            // z is int, 0 <= z <= 1000.0
-            IloIntVar[] xs = cplex.boolVarArray(customerRecommendations.size());
+            // z dvars are doubles, 0 <= z <= 1000.0
+            IloIntVar[] xs = cplex.boolVarArray(numRecItems);
             IloIntVar[] ys = cplex.boolVarArray(itemCategories.length);
-            IloNumVar z = cplex.numVar(0.0, 1000.0);
+            IloNumVar[] zs = cplex.numVarArray(numRecItems, 0.0, 1000.0);
 
 
             // OBJECTIVE FUNCTION
             // available operators:
             // abs, constant, diff [subtract], max, min, negative, prod, scalProd, square, sum
 
-            // maximize sum(prices * x) - (100 * sum(y) + 300 * z)
+            // maximize sum(prices * x) - (100 * sum(y) + 300 * sum(z))
             IloLinearIntExpr totalScores = cplex.scalProd(itemScores, xs);
-            IloNumExpr penalty = cplex.sum(cplex.prod(100, cplex.sum(ys)), cplex.prod(300, z));
+            IloNumExpr penalty = cplex.sum(cplex.prod(100, cplex.sum(ys)), cplex.prod(300, cplex.sum(zs)));
             IloNumExpr obj = cplex.diff(totalScores, penalty);
             cplex.addMaximize(obj);
 
@@ -231,13 +232,15 @@ public class MenuEngine {
             // outputLength == sum(xs)
             cplex.addEq(outputLength, cplex.sum(xs), "outputLength");
 
-            // solutionTotalPrices + currentTotalPrices <= (1 + Z) * (budget)
-            IloNumExpr totalPrices = cplex.sum(cplex.scalProd(itemPrices, xs), curTotalPrice);
+            // itemPrice_i * x_i + currentTotalPrices <= (1 + Z_i) * (budget), for all i
             double budget = numPax * spendPerPax;
             double remainingBudget = budget - curTotalPrice;
             System.out.println("Budget: " + budget);
             System.out.println("Remaining budget: " + remainingBudget);
-            cplex.addLe(totalPrices, cplex.prod(cplex.sum(1, z), budget), "budget");
+            for (int i = 0; i < numRecItems; i++) {
+                IloNumExpr totalPrice = cplex.sum(cplex.prod(itemPrices[i], xs[i]), curTotalPrice);
+                cplex.addLe(totalPrice, cplex.prod(cplex.sum(1, zs[i]), budget), "budget");
+            }
 
             // make the category's y 1 if exceeding 1 item per category
             // x <= 1 + My
@@ -245,7 +248,7 @@ public class MenuEngine {
             for (int i = 0; i < categoryConstraints.length; i++) {
                 categoryConstraints[i] = cplex.linearIntExpr();
             }
-            for (int i = 0; i < customerRecommendations.size(); i++) {
+            for (int i = 0; i < numRecItems; i++) {
                 categoryConstraints[itemCategories[i]].addTerm(1, xs[i]);
             }
             for (int i = 0; i < categoryConstraints.length; i++) {
@@ -266,7 +269,7 @@ public class MenuEngine {
                 System.out.println("=== OBJECTIVE VALUE");
                 System.out.println(cplex.getObjValue());
                 System.out.println("=== SOLUTION VALUES");
-                for (int i = 0; i < customerRecommendations.size(); i++) {
+                for (int i = 0; i < numRecItems; i++) {
                     // cannot test == 1 here because cplex sometimes returns 0.99999999999908 when bool var is true
                     if (cplex.getValue(xs[i]) != 0) {
                         MenuItem item = menuItems.get(customerRecommendations.get(i));
