@@ -250,22 +250,24 @@ public class MenuEngine {
                 cplex.addLe(totalPrice, cplex.prod(cplex.sum(1, zs[i]), budget), "budget");
             }
 
-            // make the category's y 1 if exceeding 1 item per category
-            // x <= 1 + My
+            // make the category's y = 1 if exceeding 1 item per category
             IloLinearIntExpr[] categoryConstraints = new IloLinearIntExpr[categories.size()];
+            // init for all categories
             for (int i = 0; i < categoryConstraints.length; i++) {
                 categoryConstraints[i] = cplex.linearIntExpr();
             }
+            // attach each item to its category
             for (int i = 0; i < numRecItems; i++) {
                 categoryConstraints[itemCategories[i]].addTerm(1, xs[i]);
             }
+            // x <= 1 + My
             for (int i = 0; i < categoryConstraints.length; i++) {
                 cplex.addLe(categoryConstraints[i], cplex.sum(1, cplex.prod(largeM, ys[i])), "category"
                         + categories.get(i));
             }
 
-            // just write this lp file out for fun
-            cplex.exportModel("test.lp");
+            // write this lp file out for debugging with interactive cplex optimizer
+//            cplex.exportModel("test.lp");
 
             // provide visual separation from cplex engine's output
             System.out.println("=== STARTING CPLEX");
