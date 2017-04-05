@@ -20,8 +20,8 @@ import java.util.*;
 
 public class MenuEngine {
 
-    static Map<String, MenuItem> menuItems;
-    static Map<String, List<String>> recommendations;
+    private static Map<String, MenuItem> menuItems;
+    private static Map<String, List<String>> recommendations;
 
     public static void main(String[] args) {
         // load data
@@ -80,7 +80,8 @@ public class MenuEngine {
         });
         get("/recommend", (request, response) -> {
             // check for required params
-            String[] requiredParams = {"customerid", "outputlength", "numpax", "targetspend", "itemids", "itemqty"};
+            String[] requiredParams = {"customerid", "outputlength", "numpax", "targetspend", "itemids", "itemqty",
+                    "hour", "school_holiday", "public_holiday", "weekday", "outlet", "day"};
             List<String> missingParams = new ArrayList<>();
             for (String param : requiredParams) {
                 if (request.queryParams(param) == null) {
@@ -129,6 +130,13 @@ public class MenuEngine {
                 int numPax = Integer.parseInt(request.queryParams("numpax"));
                 double targetSpend = Double.parseDouble(request.queryParams("targetspend"));
 
+                String hour = request.queryParams("hour");
+                String schoolHoliday = request.queryParams("school_holiday");
+                String publicHoliday = request.queryParams("public_holiday");
+                String weekday = request.queryParams("weekday");
+                String outlet = request.queryParams("outlet");
+                String day = request.queryParams("day");
+
                 Map<String, Integer> currentOrder = new HashMap<>();
                 String[] itemIdsStrings = request.queryParams("itemids").split(",");
                 String[] itemQtyStrings = request.queryParams("itemqty").split(",");
@@ -143,7 +151,14 @@ public class MenuEngine {
                     }
                 }
 
-                List<String> results = computeRecommendation(customerId, outputLength, numPax, targetSpend, currentOrder);
+                System.out.println("=== RECEIVED REQUEST");
+                System.out.println("Customer ID: " + customerId);
+                System.out.println("Output length: " + outputLength);
+                System.out.println("Num of pax: " + numPax);
+                System.out.println("Target spend per pax: " + targetSpend);
+
+                List<String> results = computeRecommendation(customerId, outputLength, numPax, targetSpend, currentOrder,
+                        hour, schoolHoliday, publicHoliday, weekday, outlet, day);
 
                 return new Gson().toJson(results);
             } catch (Exception e) {
@@ -155,25 +170,28 @@ public class MenuEngine {
     }
 
     public static List<String> computeRecommendation(String customerId, int outputLength, int numPax, double spendPerPax,
-            Map<String, Integer> currents) {
-        System.out.println("=== RECEIVED REQUEST");
-        System.out.println("Customer ID: " + customerId);
-        System.out.println("Output length: " + outputLength);
-        System.out.println("Num of pax: " + numPax);
-        System.out.println("Target spend per pax: " + spendPerPax);
-
+            Map<String, Integer> currents, String hour, String schoolHoliday, String publicHoliday, String weekday,
+            String outlet, String day) {
         // process data: only get the current customer (from collaborative filtering)
+        boolean hasCF = true;
         List<String> customerRecommendations = recommendations.get(customerId);
+        if (customerRecommendations == null) {
+            hasCF = false;
+            customerRecommendations = new ArrayList<>();
+            for (Map.Entry<String, MenuItem> entry : menuItems.entrySet()) {
+                customerRecommendations.add(entry.getKey());
+            }
+        }
         System.out.println("Original number of CF recommendations: " + customerRecommendations.size());
 
-        // process data: currently ordered items
+        // process data: currently ordered items => add to current total, remove from recommendation candidates
         double curTotalPrice = 0.0;
         for (Map.Entry<String, Integer> current : currents.entrySet()) {
             MenuItem item = menuItems.get(current.getKey());
-
-            // add item to current total price
             int qty = current.getValue();
             System.out.println("Adding current item " + item.getDescription() + " with price " + item.getPrice() + " and qty " + qty);
+
+            // add item to current total price
             curTotalPrice += item.getPrice() * qty;
 
             // remove from consideration in the recommendations list
@@ -191,18 +209,19 @@ public class MenuEngine {
                     .setHost("localhost")
                     .setPort(8000)
                     .setPath("/json")
-                    .setParameter("hour", "10")
-                    .setParameter("school_holiday", "0")
-                    .setParameter("public_holiday", "0")
-                    .setParameter("weekday", "0")
-                    .setParameter("outlet", "Outlet 1")
-                    .setParameter("day", "Monday")
+                    .setParameter("hour", hour)
+                    .setParameter("school_holiday", schoolHoliday)
+                    .setParameter("public_holiday", publicHoliday)
+                    .setParameter("weekday", weekday)
+                    .setParameter("outlet", outlet)
+                    .setParameter("day", day)
                     .build();
             HttpGet httpget = new HttpGet(uri);
             CloseableHttpResponse response = httpclient.execute(httpget);
             try {
                 // extract json response and make it into key-value pairs
                 String jsonResponse = EntityUtils.toString(response.getEntity());
+                System.out.println("R server response: " + jsonResponse);
                 HashMap<String, Double>[] jsonArray = new Gson().fromJson(jsonResponse, HashMap[].class);
                 HashMap<String, Double> dtMap = jsonArray[0];
                 for (Map.Entry<String, Double> entry : dtMap.entrySet()) {
@@ -236,6 +255,7 @@ public class MenuEngine {
             throw new RuntimeException("Issue encountered while connecting to R service", e);
         }
 
+
         // process data: prices and categories, compute the scores
         int numRecItems = customerRecommendations.size();
         double[] itemPrices = new double[numRecItems];
@@ -244,10 +264,19 @@ public class MenuEngine {
         List<String> categories = new ArrayList<>();
         for (int i = 0; i < numRecItems; i++) {
             MenuItem item = menuItems.get(customerRecommendations.get(i));
-            itemScores[i] = numRecItems - i; // rank
-            itemScores[i] += dtRank.get(item.getId());
+            itemScores[i] = dtRank.get(item.getId());
+            if (hasCF) {
+                itemScores[i] += numRecItems - i; // rank
+            }
             itemPrices[i] = item.getPrice();
-            System.out.println("Adding recommended item " + item.getDescription() + " with price " + item.getPrice() + " and score " + itemScores[i]);
+            if (hasCF) {
+                System.out.println("Adding recommended item " + item.getDescription() + " with price " + item.getPrice()
+                        + " and score " + dtRank.get(item.getId()) + " + " + (numRecItems - 1) + " = " + itemScores[i]);
+            } else {
+                System.out.println("Adding recommended item " + item.getDescription() + " with price " + item.getPrice()
+                        + " and score " + itemScores[i]);
+            }
+
 
             int categoryIndex = categories.indexOf(item.getCategory());
             if (categoryIndex == -1) {
