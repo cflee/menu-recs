@@ -5,8 +5,17 @@ import static spark.Spark.*;
 import com.google.gson.Gson;
 import ilog.concert.*;
 import ilog.cplex.IloCplex;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.utils.URIBuilder;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.*;
 
 public class MenuEngine {
@@ -134,7 +143,6 @@ public class MenuEngine {
                     }
                 }
 
-
                 List<String> results = computeRecommendation(customerId, outputLength, numPax, targetSpend, currentOrder);
 
                 return new Gson().toJson(results);
@@ -147,16 +155,16 @@ public class MenuEngine {
     }
 
     public static List<String> computeRecommendation(String customerId, int outputLength, int numPax, double spendPerPax,
-                                             Map<String, Integer> currents) {
+            Map<String, Integer> currents) {
         System.out.println("=== RECEIVED REQUEST");
         System.out.println("Customer ID: " + customerId);
         System.out.println("Output length: " + outputLength);
         System.out.println("Num of pax: " + numPax);
         System.out.println("Target spend per pax: " + spendPerPax);
 
-        // process data: only get the current customer
+        // process data: only get the current customer (from collaborative filtering)
         List<String> customerRecommendations = recommendations.get(customerId);
-        System.out.println("Original number of recommendations: " + customerRecommendations.size());
+        System.out.println("Original number of CF recommendations: " + customerRecommendations.size());
 
         // process data: currently ordered items
         double curTotalPrice = 0.0;
@@ -173,7 +181,62 @@ public class MenuEngine {
         }
         System.out.println("After removing currently ordered items: " + customerRecommendations.size());
 
-        // process data: prices and categories
+        // process data: (predictive filtering)
+        List<DTResult> dtResults = new ArrayList<>();
+        Map<String, Integer> dtRank = new HashMap<>();
+        CloseableHttpClient httpclient = HttpClients.createDefault();
+        try {
+            URI uri = new URIBuilder()
+                    .setScheme("http")
+                    .setHost("localhost")
+                    .setPort(8000)
+                    .setPath("/json")
+                    .setParameter("hour", "10")
+                    .setParameter("school_holiday", "0")
+                    .setParameter("public_holiday", "0")
+                    .setParameter("weekday", "0")
+                    .setParameter("outlet", "Outlet 1")
+                    .setParameter("day", "Monday")
+                    .build();
+            HttpGet httpget = new HttpGet(uri);
+            CloseableHttpResponse response = httpclient.execute(httpget);
+            try {
+                // extract json response and make it into key-value pairs
+                String jsonResponse = EntityUtils.toString(response.getEntity());
+                HashMap<String, Double>[] jsonArray = new Gson().fromJson(jsonResponse, HashMap[].class);
+                HashMap<String, Double> dtMap = jsonArray[0];
+                for (Map.Entry<String, Double> entry : dtMap.entrySet()) {
+                    DTResult result = new DTResult();
+                    result.itemId = entry.getKey().trim();
+                    result.score = entry.getValue();
+                    if (!result.itemId.equals("TAKEAWAY")) {
+                        dtResults.add(result);
+                    }
+                }
+                // score by score descending
+                dtResults.sort(new DTComparator());
+                System.out.println("Original number of DT recommendations: " + dtResults.size());
+                // assign the rank
+                int i = dtResults.size();
+                for (DTResult result : dtResults) {
+                    dtRank.put(result.itemId, i);
+                    i--;
+                }
+            } finally {
+                response.close();
+            }
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            throw new RuntimeException("Invalid parameters for R service", e);
+        } catch (ClientProtocolException e) {
+            e.printStackTrace();
+            throw new RuntimeException("Issue encountered while connecting to R service", e);
+        } catch (IOException e) {
+            e.printStackTrace();
+            throw new RuntimeException("Issue encountered while connecting to R service", e);
+        }
+
+        // process data: prices and categories, compute the scores
         int numRecItems = customerRecommendations.size();
         double[] itemPrices = new double[numRecItems];
         int[] itemScores = new int[numRecItems];
@@ -181,7 +244,8 @@ public class MenuEngine {
         List<String> categories = new ArrayList<>();
         for (int i = 0; i < numRecItems; i++) {
             MenuItem item = menuItems.get(customerRecommendations.get(i));
-            itemScores[i] = numRecItems - i;
+            itemScores[i] = numRecItems - i; // rank
+            itemScores[i] += dtRank.get(item.getId());
             itemPrices[i] = item.getPrice();
             System.out.println("Adding recommended item " + item.getDescription() + " with price " + item.getPrice() + " and score " + itemScores[i]);
 
@@ -223,12 +287,9 @@ public class MenuEngine {
 
             // maximize sum(prices * x) - (100 * sum(y) + 300 * sum(z))
             IloLinearIntExpr totalScores = cplex.scalProd(itemScores, xs);
-            IloNumExpr penalty = cplex.sum(cplex.prod(100, cplex.sum(ys)), cplex.prod(300, cplex.sum(zs)));
+            IloNumExpr penalty = cplex.sum(cplex.prod(300, cplex.sum(ys)), cplex.prod(3000, cplex.sum(zs)));
             IloNumExpr obj = cplex.diff(totalScores, penalty);
             cplex.addMaximize(obj);
-
-            System.out.println("Quadratic objective? " + cplex.isQO());
-            System.out.println("Quadratic constraint? " + cplex.isQC());
 
 
             // CONSTRAINTS
@@ -305,5 +366,17 @@ public class MenuEngine {
         }
 
         return results;
+    }
+}
+
+class DTResult {
+    String itemId;
+    double score;
+}
+
+class DTComparator implements Comparator<DTResult> {
+    @Override
+    public int compare(DTResult o1, DTResult o2) {
+        return Double.compare(o2.score, o1.score);
     }
 }
